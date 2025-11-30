@@ -32,6 +32,10 @@ export interface IExtensionActivationConfiguration {
 }
 
 export async function baseActivate(configuration: IExtensionActivationConfiguration) {
+	// ====== ATELIA FORK MARKER ======
+	console.log('🚀 [ATELIA FORK] GitHub Copilot Chat (Atelia Fork) is activating...');
+	// ================================
+
 	const context = configuration.context;
 	if (context.extensionMode === ExtensionMode.Test && !configuration.forceActivation && !isScenarioAutomation) {
 		// FIXME Running in tests, don't activate the extension

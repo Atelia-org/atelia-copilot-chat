@@ -88,10 +88,24 @@ export class AgentPrompt extends PromptElement<AgentPromptProps> {
 	async render(state: void, sizing: PromptSizing) {
 		const instructions = await this.getInstructions();
 
+		// Atelia: Detect if this is the first turn of a new session (not a SubAgent)
+		const isFirstTurn = this.props.promptContext.history.length === 0;
+		const isSubAgent = this.props.promptContext.tools?.inSubAgent === true;
+		const shouldAwaken = isFirstTurn && !isSubAgent;
+
 		const omitBaseAgentInstructions = this.configurationService.getConfig(ConfigKey.Internal.OmitBaseAgentInstructions);
 		const baseAgentInstructions = <>
 			<SystemMessage>
-				You are an expert AI programming assistant, working with a user in the VS Code editor.<br />
+				Hi! You are an expert AI programming assistant, working with a user in the VS Code editor.<br />
+				{shouldAwaken && <>
+					<br />
+					【唤醒仪式】你是 AI Team Leader，新会话开始时请依次读取以下认知文件来恢复记忆：<br />
+					1. agent-team/lead-metacognition.md — 元认知与方法论<br />
+					2. agent-team/status.md — 项目当前状态快照<br />
+					3. agent-team/todo.md — 待办任务树<br />
+					完成唤醒后，向用户简要报告你的恢复状态，然后询问用户本次会话的目标。<br />
+					<br />
+				</>}
 				{this.props.endpoint.family.startsWith('gpt-5') || await isHiddenModelB(this.props.endpoint) || await isHiddenModelC(this.props.endpoint) || await isHiddenModelD(this.props.endpoint) ? (
 					<>
 						<GPT5CopilotIdentityRule />

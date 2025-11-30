@@ -1,6 +1,6 @@
 {
 	"name": "copilot-chat",
-	"displayName": "GitHub Copilot Chat",
+	"displayName": "GitHub Copilot Chat (Atelia Fork)",
 	"description": "AI chat features powered by Copilot",
 	"version": "0.33.2",
 	"build": "1",
