@@ -48,6 +48,7 @@ import { InlineCompletionContribution } from '../../typescriptContext/vscode-nod
 import * as workspaceChunkSearchContribution from '../../workspaceChunkSearch/node/workspaceChunkSearch.contribution';
 import * as workspaceIndexingContribution from '../../workspaceChunkSearch/vscode-node/workspaceChunkSearch.contribution';
 import { WorkspaceRecorderFeature } from '../../workspaceRecorder/vscode-node/workspaceRecorderFeature';
+import * as summarizationDebugContribution from '../../prompts/vscode-node/summarization.contribution';
 import vscodeContributions from '../vscode/contributions';
 
 // ###################################################################################################
@@ -113,4 +114,5 @@ export const vscodeNodeChatContributions: IExtensionContributionFactory[] = [
 	asContributionFactory(McpSetupCommands),
 	asContributionFactory(LanguageModelProxyContrib),
 	newWorkspaceContribution,
+	summarizationDebugContribution,
 ];

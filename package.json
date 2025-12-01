@@ -2105,6 +2105,16 @@
 				"category": "Developer"
 			},
 			{
+				"command": "github.copilot.debug.dryRunSummarization",
+				"title": "Dry-Run Conversation Summarization",
+				"category": "Developer"
+			},
+			{
+				"command": "github.copilot.debug.testPropsBuilder",
+				"title": "Test Summarization PropsBuilder",
+				"category": "Developer"
+			},
+			{
 				"command": "github.copilot.open.walkthrough",
 				"title": "%github.copilot.command.openWalkthrough%",
 				"category": "Chat"
