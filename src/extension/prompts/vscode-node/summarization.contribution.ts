@@ -3,10 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Raw } from '@vscode/prompt-tsx';
 import * as vscode from 'vscode';
-import { ChatFetchResponseType, ChatLocation } from '../../../platform/chat/common/commonTypes';
-import { ConfigKey, IConfigurationService } from '../../../platform/configuration/common/configurationService';
+import { ChatLocation } from '../../../platform/chat/common/commonTypes';
 import { IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { ILogService } from '../../../platform/log/common/logService';
 import { IChatEndpoint } from '../../../platform/networking/common/networking';
@@ -16,14 +14,11 @@ import { StopWatch } from '../../../util/vs/base/common/stopwatch';
 import { IInstantiationService, ServicesAccessor } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { IExtensionContribution } from '../../common/contributions';
 import { IConversationStore } from '../../conversationStore/node/conversationStore';
-import { ToolCallingLoop } from '../../intents/node/toolCallingLoop';
 import { ChatVariablesCollection } from '../../prompt/common/chatVariablesCollection';
 import { Conversation, normalizeSummariesOnRounds } from '../../prompt/common/conversation';
 import { IBuildPromptContext } from '../../prompt/common/intents';
-import { normalizeToolSchema } from '../../tools/common/toolSchemaNormalizer';
 import { IToolsService } from '../../tools/common/toolsService';
-import { ConversationHistorySummarizationPrompt, ensureSummarizationDebugFlagsExposed, SummarizationDebugFlags, SummarizedAgentHistoryProps, SummarizedConversationHistoryPropsBuilder } from '../node/agent/summarizedConversationHistory';
-import { renderPromptElement } from '../node/base/promptRenderer';
+import { ConversationHistorySummarizer, createPromptSizingForDryRun, ensureSummarizationDebugFlagsExposed, SummarizationDebugFlags, SummarizedAgentHistoryProps, SummarizedConversationHistoryPropsBuilder } from '../node/agent/summarizedConversationHistory';
 
 // Ensure debug flags are exposed to globalThis when this contribution loads
 ensureSummarizationDebugFlagsExposed();
@@ -47,7 +42,6 @@ class SummarizationDebugContribution implements IExtensionContribution {
 		@ILogService private readonly logService: ILogService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IEndpointProvider private readonly endpointProvider: IEndpointProvider,
-		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IConversationStore private readonly conversationStore: IConversationStore,
 		@IToolsService private readonly toolsService: IToolsService,
 	) {
@@ -326,6 +320,7 @@ class SummarizationDebugContribution implements IExtensionContribution {
 	private buildPromptContextFromConversation(conversation: Conversation): IBuildPromptContext {
 		// Get latest turn for current query
 		const latestTurn = conversation.getLatestTurn();
+		const availableTools = this.getAvailableToolsForSummarization();
 
 		return {
 			query: latestTurn.request.message,
@@ -340,13 +335,14 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			tools: {
 				toolReferences: [],
 				toolInvocationToken: undefined!, // Not used during summarization rendering
-				availableTools: [],
+				availableTools,
 			},
 		};
 	}
 
 	/**
 	 * Shared dry-run execution logic.
+	 * Now uses ConversationHistorySummarizer directly for 100% code path alignment with real summarization.
 	 */
 	private async executeDryRun(promptContext: IBuildPromptContext, contextType: 'REAL' | 'MOCK', endpointOverride?: IChatEndpoint): Promise<void> {
 		const outputChannel = this.outputChannel;
@@ -356,12 +352,19 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			const endpoint = endpointOverride ?? await this.endpointProvider.getChatEndpoint('gpt-4.1');
 			outputChannel.info(`Using endpoint: ${endpoint.model}`);
 
+			// Log debug flags state
+			outputChannel.info(`SummarizationDebugFlags.injectTools: ${SummarizationDebugFlags.injectTools}`);
+			outputChannel.info(`SummarizationDebugFlags.verboseLogging: ${SummarizationDebugFlags.verboseLogging}`);
+
+			const availableTools = promptContext.tools?.availableTools ?? this.getAvailableToolsForSummarization();
+			outputChannel.info(`Available tools for summarization: ${availableTools.length}`);
 			const props: SummarizedAgentHistoryProps = {
 				priority: 100,
 				endpoint,
 				location: ChatLocation.Panel,
 				promptContext,
 				maxToolResultLength: 10000,
+				tools: availableTools,
 			};
 
 			// Log input context stats
@@ -386,162 +389,66 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			}
 			outputChannel.info(`Total rounds: ${totalRounds}`);
 
-			// Step 1: PropsBuilder
+			// Create PromptSizing for dry-run
+			const sizing = createPromptSizingForDryRun(endpoint);
+			outputChannel.info(`PromptSizing tokenBudget: ${sizing.tokenBudget}`);
+
+			// Create ConversationHistorySummarizer (same as real flow!)
 			outputChannel.info('');
-			outputChannel.info('=== Step 1: PropsBuilder.getProps() ===');
-			const propsBuilder = this.instantiationService.createInstance(SummarizedConversationHistoryPropsBuilder);
+			outputChannel.info('=== Using ConversationHistorySummarizer (same as real flow) ===');
+			const summarizer = this.instantiationService.createInstance(
+				ConversationHistorySummarizer,
+				props,
+				sizing,
+				undefined, // no progress reporting for dry-run
+				CancellationToken.None,
+			);
 
-			let propsInfo;
-			try {
-				propsInfo = propsBuilder.getProps(props);
-			} catch (e) {
-				const err = e as Error;
-				outputChannel.error(`PropsBuilder.getProps() threw: ${err.message}`);
-				outputChannel.error(`This likely means there's nothing to summarize (<=1 unsummarized rounds).`);
-				vscode.window.showErrorMessage(`PropsBuilder failed: ${err.message}`);
-				return;
-			}
-
-			outputChannel.info(`summarizedToolCallRoundId: ${propsInfo.summarizedToolCallRoundId}`);
-			outputChannel.info(`Virtual history turns: ${propsInfo.props.promptContext.history.length}`);
-			outputChannel.info(`Virtual toolCallRounds: ${propsInfo.props.promptContext.toolCallRounds?.length ?? 0}`);
-			outputChannel.info(`isContinuation: ${propsInfo.props.promptContext.isContinuation}`);
-
-			// Step 2: Render prompt
-			outputChannel.info('');
-			outputChannel.info('=== Step 2: Render Summarization Prompt ===');
 			const stopwatch = new StopWatch(false);
 
-			const forceMode = this.configurationService.getConfig<string | undefined>(ConfigKey.Internal.AgentHistorySummarizationMode);
-			const simpleMode = forceMode === 'simple';
-			outputChannel.info(`Mode: ${simpleMode ? 'Simple' : 'Full'} (forceMode config: ${forceMode ?? 'not set'})`);
-
-			let summarizationPrompt: Raw.ChatMessage[];
 			try {
-				const renderResult = await renderPromptElement(
-					this.instantiationService,
-					endpoint,
-					ConversationHistorySummarizationPrompt,
-					{ ...propsInfo.props, simpleMode },
-					undefined,
-					CancellationToken.None
-				);
-				summarizationPrompt = renderResult.messages;
-				outputChannel.info(`Prompt rendered in ${stopwatch.elapsed()}ms`);
-				outputChannel.info(`Message count: ${summarizationPrompt.length}`);
-				outputChannel.info(`Token count: ${renderResult.tokenCount}`);
-
-				// Log prompt structure
-				outputChannel.info('');
-				outputChannel.info('=== Prompt Structure ===');
-				for (const [i, msg] of summarizationPrompt.entries()) {
-					const roleStr = msg.role === 0 ? 'system' : msg.role === 1 ? 'user' : msg.role === 2 ? 'assistant' : `role=${msg.role}`;
-					const contentPreview = this.getContentPreview(msg.content, 200);
-					outputChannel.info(`  [${i}] ${roleStr}, content length=${this.getContentLength(msg.content)} chars`);
-					outputChannel.info(`      preview: ${contentPreview}`);
-				}
-			} catch (e) {
-				const err = e as Error;
-				outputChannel.error(`Failed to render prompt: ${err.message}`);
-				outputChannel.error(`Stack: ${err.stack}`);
-				vscode.window.showErrorMessage(`Prompt render failed: ${err.message}`);
-				return;
-			}
-
-			// Step 3: LLM call
-			outputChannel.info('');
-			outputChannel.info('=== Step 3: LLM Request ===');
-			outputChannel.info(`Endpoint: ${endpoint.model}`);
-
-			// Build tool options (matching real summarization behavior)
-			const shouldInjectTools = SummarizationDebugFlags.injectTools && !simpleMode;
-			outputChannel.info(`Tool injection: ${shouldInjectTools ? 'ENABLED' : 'DISABLED'} (flag=${SummarizationDebugFlags.injectTools}, simpleMode=${simpleMode})`);
-
-			let toolOpts: { tool_choice: 'none'; tools: any[] } | undefined;
-			if (shouldInjectTools) {
-				const availableTools = this.toolsService.tools;
-				outputChannel.info(`Available tools count: ${availableTools.length}`);
-
-				toolOpts = {
-					tool_choice: 'none' as const,
-					tools: normalizeToolSchema(
-						endpoint.family,
-						availableTools.map(tool => ({
-							function: {
-								name: tool.name,
-								description: tool.description,
-								parameters: tool.inputSchema && Object.keys(tool.inputSchema).length ? tool.inputSchema : undefined
-							},
-							type: 'function'
-						})),
-						(tool, rule) => {
-							outputChannel.warn(`Tool ${tool} failed validation: ${rule}`);
-						},
-					),
-				};
-				outputChannel.info(`Injected tools count: ${toolOpts.tools?.length ?? 0}`);
-			}
-
-			outputChannel.info('Sending request to LLM...');
-
-			try {
-				const summaryResponse = await endpoint.makeChatRequest2({
-					debugName: `dryRunSummarization-${contextType}-${simpleMode ? 'simple' : 'full'}`,
-					messages: ToolCallingLoop.stripInternalToolCallIds(summarizationPrompt),
-					finishedCb: undefined,
-					location: ChatLocation.Other,
-					requestOptions: {
-						temperature: 0,
-						stream: false,
-						...toolOpts
-					},
-					enableRetryOnFilter: true
-				}, CancellationToken.None);
+				// Call summarizeHistory() - this is the EXACT same code path as real summarization!
+				const result = await summarizer.summarizeHistory();
 
 				outputChannel.info(`Request completed in ${stopwatch.elapsed()}ms`);
-				outputChannel.info(`Response type: ${summaryResponse.type}`);
+				outputChannel.info(`toolCallRoundId: ${result.toolCallRoundId}`);
 
-				if (summaryResponse.type === ChatFetchResponseType.Success) {
-					outputChannel.info(`RequestId: ${summaryResponse.requestId}`);
-					if (summaryResponse.usage) {
-						outputChannel.info(`Usage: prompt_tokens=${summaryResponse.usage.prompt_tokens}, completion_tokens=${summaryResponse.usage.completion_tokens}`);
-					}
+				outputChannel.info('');
+				outputChannel.info('=== LLM Response (Summary) ===');
+				outputChannel.info(`Length: ${result.summary.length} chars`);
 
-					outputChannel.info('');
-					outputChannel.info('=== LLM Response (Summary) ===');
-					outputChannel.info(`Length: ${summaryResponse.value.length} chars`);
-
-					if (summaryResponse.value.length === 0) {
-						outputChannel.warn('⚠️ WARNING: LLM returned EMPTY response!');
-						outputChannel.warn('This is the bug we are debugging.');
-					}
-
-					outputChannel.info('--- BEGIN SUMMARY ---');
-					const lines = summaryResponse.value.split('\n');
-					for (const line of lines) {
-						outputChannel.info(line);
-					}
-					outputChannel.info('--- END SUMMARY ---');
-
-					outputChannel.info('');
-					outputChannel.info(`=== DRY-RUN SUCCESS (${contextType}) ===`);
-					outputChannel.info('NOTE: Summary was NOT written to round.summary (dry-run mode)');
-
-					vscode.window.showInformationMessage(
-						`Dry-run (${contextType}) completed! Summary: ${summaryResponse.value.length} chars. Check output.`
-					);
-				} else {
-					outputChannel.warn(`Response failed: ${summaryResponse.type}`);
-					if ('reason' in summaryResponse) {
-						outputChannel.warn(`Reason: ${(summaryResponse as any).reason}`);
-					}
-					vscode.window.showWarningMessage(`LLM request returned: ${summaryResponse.type}`);
+				if (result.summary.length === 0) {
+					outputChannel.warn('⚠️ WARNING: LLM returned EMPTY response!');
+					outputChannel.warn('This is the bug we are debugging.');
+					outputChannel.warn(`Tool injection was: ${SummarizationDebugFlags.injectTools ? 'ENABLED' : 'DISABLED'}`);
 				}
+
+				outputChannel.info('--- BEGIN SUMMARY ---');
+				const lines = result.summary.split('\n');
+				for (const line of lines) {
+					outputChannel.info(line);
+				}
+				outputChannel.info('--- END SUMMARY ---');
+
+				outputChannel.info('');
+				outputChannel.info(`=== DRY-RUN SUCCESS (${contextType}) ===`);
+				outputChannel.info('NOTE: Summary was NOT written to round.summary (dry-run mode)');
+
+				vscode.window.showInformationMessage(
+					`Dry-run (${contextType}) completed! Summary: ${result.summary.length} chars. Check output.`
+				);
 			} catch (e) {
 				const err = e as Error;
-				outputChannel.error(`LLM request failed: ${err.message}`);
+				outputChannel.error(`Summarization failed: ${err.message}`);
 				outputChannel.error(`Stack: ${err.stack}`);
-				vscode.window.showErrorMessage(`LLM request failed: ${err.message}`);
+
+				// Check if it's a "nothing to summarize" error
+				if (err.message.includes('Nothing to summarize')) {
+					outputChannel.error('This means there are not enough unsummarized rounds to trigger summarization.');
+					vscode.window.showErrorMessage(`Nothing to summarize. Need at least 2 unsummarized rounds.`);
+				} else {
+					vscode.window.showErrorMessage(`Summarization failed: ${err.message}`);
+				}
 			}
 
 		} catch (error) {
@@ -636,37 +543,6 @@ class SummarizationDebugContribution implements IExtensionContribution {
 	}
 
 	/**
-	 * Get a preview of message content for logging.
-	 */
-	private getContentPreview(content: Raw.ChatCompletionContentPart[], maxLength: number): string {
-		let text = '';
-		for (const part of content) {
-			if (part.type === Raw.ChatCompletionContentPartKind.Text) {
-				text += part.text;
-			} else {
-				text += `[${part.type}]`;
-			}
-			if (text.length > maxLength) {
-				return text.substring(0, maxLength) + '...';
-			}
-		}
-		return text.substring(0, maxLength);
-	}
-
-	/**
-	 * Get total character length of message content.
-	 */
-	private getContentLength(content: Raw.ChatCompletionContentPart[]): number {
-		let length = 0;
-		for (const part of content) {
-			if (part.type === Raw.ChatCompletionContentPartKind.Text) {
-				length += part.text.length;
-			}
-		}
-		return length;
-	}
-
-	/**
 	 * Create a mock prompt context for testing.
 	 * Simulates a conversation with 3 turns, each with 2 rounds.
 	 */
@@ -705,11 +581,25 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			createRound('current-round1'),
 		];
 
+		const availableTools = this.getAvailableToolsForSummarization();
+		const chatVariables = new ChatVariablesCollection();
+
 		return {
+			query: 'Mock summarization request',
 			history: mockTurns as any,
+			chatVariables,
 			toolCallRounds: currentRounds as any,
 			isContinuation: false,
+			tools: {
+				toolReferences: [],
+				toolInvocationToken: undefined!,
+				availableTools,
+			},
 		} as IBuildPromptContext;
+	}
+
+	private getAvailableToolsForSummarization(): readonly vscode.LanguageModelToolInformation[] {
+		return this.toolsService.tools;
 	}
 
 	dispose(): void {

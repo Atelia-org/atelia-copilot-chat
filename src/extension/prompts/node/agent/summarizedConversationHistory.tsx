@@ -417,7 +417,25 @@ export function ensureSummarizationDebugFlagsExposed(): typeof SummarizationDebu
 // Expose immediately on module load
 ensureSummarizationDebugFlagsExposed();
 
-class ConversationHistorySummarizer {
+/**
+ * Creates a PromptSizing object for dry-run or testing scenarios.
+ * This is a simplified implementation that uses the endpoint's tokenizer.
+ */
+export function createPromptSizingForDryRun(endpoint: IChatEndpoint, tokenBudget?: number): PromptSizing {
+	const tokenizer = endpoint.acquireTokenizer();
+	return {
+		tokenBudget: tokenBudget ?? Math.floor(endpoint.modelMaxPromptTokens * 0.3), // Default to 30% of model max for summary
+		endpoint: {
+			modelMaxPromptTokens: endpoint.modelMaxPromptTokens,
+		},
+		countTokens: (text: Raw.ChatCompletionContentPart | string, _token?: CancellationToken) => {
+			const textStr = typeof text === 'string' ? text : (text.type === Raw.ChatCompletionContentPartKind.Text ? text.text : '');
+			return tokenizer.tokenLength(textStr);
+		},
+	};
+}
+
+export class ConversationHistorySummarizer {
 	private readonly summarizationId = generateUuid();
 
 	constructor(
