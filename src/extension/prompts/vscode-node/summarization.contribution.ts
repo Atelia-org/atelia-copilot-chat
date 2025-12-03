@@ -3,24 +3,30 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as vscode from 'vscode';
 import { Raw } from '@vscode/prompt-tsx';
+import * as vscode from 'vscode';
 import { ChatFetchResponseType, ChatLocation } from '../../../platform/chat/common/commonTypes';
 import { ConfigKey, IConfigurationService } from '../../../platform/configuration/common/configurationService';
 import { IEndpointProvider } from '../../../platform/endpoint/common/endpointProvider';
 import { ILogService } from '../../../platform/log/common/logService';
+import { IChatEndpoint } from '../../../platform/networking/common/networking';
 import { CancellationToken } from '../../../util/vs/base/common/cancellation';
 import { DisposableStore, IDisposable } from '../../../util/vs/base/common/lifecycle';
 import { StopWatch } from '../../../util/vs/base/common/stopwatch';
-import { ServicesAccessor, IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
+import { IInstantiationService, ServicesAccessor } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { IExtensionContribution } from '../../common/contributions';
 import { IConversationStore } from '../../conversationStore/node/conversationStore';
 import { ToolCallingLoop } from '../../intents/node/toolCallingLoop';
 import { ChatVariablesCollection } from '../../prompt/common/chatVariablesCollection';
 import { Conversation, normalizeSummariesOnRounds } from '../../prompt/common/conversation';
 import { IBuildPromptContext } from '../../prompt/common/intents';
+import { normalizeToolSchema } from '../../tools/common/toolSchemaNormalizer';
+import { IToolsService } from '../../tools/common/toolsService';
+import { ConversationHistorySummarizationPrompt, ensureSummarizationDebugFlagsExposed, SummarizationDebugFlags, SummarizedAgentHistoryProps, SummarizedConversationHistoryPropsBuilder } from '../node/agent/summarizedConversationHistory';
 import { renderPromptElement } from '../node/base/promptRenderer';
-import { ConversationHistorySummarizationPrompt, SummarizedConversationHistoryPropsBuilder, SummarizedAgentHistoryProps } from '../node/agent/summarizedConversationHistory';
+
+// Ensure debug flags are exposed to globalThis when this contribution loads
+ensureSummarizationDebugFlagsExposed();
 
 /**
  * Contribution that registers development/debugging commands for conversation summarization.
@@ -43,6 +49,7 @@ class SummarizationDebugContribution implements IExtensionContribution {
 		@IEndpointProvider private readonly endpointProvider: IEndpointProvider,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IConversationStore private readonly conversationStore: IConversationStore,
+		@IToolsService private readonly toolsService: IToolsService,
 	) {
 		this._disposables.add(this.registerCommands());
 	}
@@ -60,7 +67,127 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			vscode.commands.registerCommand('github.copilot.debug.dryRunSummarizationMock', () => this.dryRunSummarizationMock()),
 			vscode.commands.registerCommand('github.copilot.debug.testPropsBuilder', () => this.testPropsBuilder()),
 			vscode.commands.registerCommand('github.copilot.debug.inspectConversation', () => this.inspectConversation()),
+			vscode.commands.registerCommand('github.copilot.debug.clearRoundSummary', () => this.clearRoundSummary()),
+			vscode.commands.registerCommand('github.copilot.debug.toggleSummarizationToolInjection', () => this.toggleToolInjection()),
 		);
+	}
+
+	/**
+	 * Toggle whether tools are injected into summarization requests.
+	 * This affects both dry-run and real summarization.
+	 */
+	private async toggleToolInjection(): Promise<void> {
+		const outputChannel = this.outputChannel;
+		outputChannel.show(true);
+
+		const currentValue = SummarizationDebugFlags.injectTools;
+		const items = [
+			{ label: '✅ Enable tool injection', description: 'tools + tool_choice=none will be sent', value: true },
+			{ label: '❌ Disable tool injection', description: 'No tools in request options', value: false },
+		];
+
+		const selected = await vscode.window.showQuickPick(items, {
+			placeHolder: `Current: ${currentValue ? 'ENABLED' : 'DISABLED'} - Select new setting`,
+			title: 'Toggle Summarization Tool Injection'
+		});
+
+		if (selected === undefined) {
+			outputChannel.info('User cancelled.');
+			return;
+		}
+
+		SummarizationDebugFlags.injectTools = selected.value;
+		outputChannel.info(`=== Tool Injection ${selected.value ? 'ENABLED' : 'DISABLED'} ===`);
+		outputChannel.info(`SummarizationDebugFlags.injectTools = ${selected.value}`);
+		outputChannel.info('This affects both dry-run and real summarization.');
+		outputChannel.info('');
+		outputChannel.info('You can also toggle this in Developer Console:');
+		outputChannel.info('  globalThis.__SUMMARIZATION_DEBUG_FLAGS__.injectTools = true/false');
+
+		vscode.window.showInformationMessage(
+			`Summarization tool injection: ${selected.value ? 'ENABLED' : 'DISABLED'}`
+		);
+	}
+
+	/**
+	 * Clear the summary property of a specific round to re-enable compression triggering.
+	 */
+	private async clearRoundSummary(): Promise<void> {
+		this.logService.info('[SummarizationDebug] clearRoundSummary called');
+
+		const outputChannel = this.outputChannel;
+		outputChannel.show(true);
+
+		const conversation = this.conversationStore.lastConversation;
+		if (!conversation) {
+			outputChannel.warn('No active conversation found.');
+			vscode.window.showWarningMessage('No active conversation found. Start a chat first.');
+			return;
+		}
+
+		// Collect all rounds with summaries
+		const roundsWithSummary: { turnIndex: number; roundIndex: number; roundId: string; summaryPreview: string }[] = [];
+		for (const [turnIdx, turn] of conversation.turns.entries()) {
+			for (const [roundIdx, round] of turn.rounds.entries()) {
+				if (round.summary) {
+					roundsWithSummary.push({
+						turnIndex: turnIdx,
+						roundIndex: roundIdx,
+						roundId: round.id,
+						summaryPreview: round.summary.substring(0, 50) + (round.summary.length > 50 ? '...' : '')
+					});
+				}
+			}
+		}
+
+		if (roundsWithSummary.length === 0) {
+			outputChannel.info('No rounds with summaries found.');
+			vscode.window.showInformationMessage('No rounds with summaries to clear.');
+			return;
+		}
+
+		// Let user select which round to clear
+		const items = roundsWithSummary.map(r => ({
+			label: `Turn ${r.turnIndex}, Round ${r.roundIndex}`,
+			description: r.roundId,
+			detail: r.summaryPreview,
+			roundId: r.roundId
+		}));
+
+		// Add "Clear All" option
+		items.unshift({
+			label: '🗑️ Clear ALL summaries',
+			description: `${roundsWithSummary.length} rounds`,
+			detail: 'This will clear all round summaries, allowing full re-compression',
+			roundId: '__ALL__'
+		});
+
+		const selected = await vscode.window.showQuickPick(items, {
+			placeHolder: 'Select a round to clear its summary',
+			title: 'Clear Round Summary'
+		});
+
+		if (!selected) {
+			outputChannel.info('User cancelled.');
+			return;
+		}
+
+		// Perform the clear
+		let clearedCount = 0;
+		for (const turn of conversation.turns) {
+			for (const round of turn.rounds) {
+				if (selected.roundId === '__ALL__' || round.id === selected.roundId) {
+					if (round.summary) {
+						round.summary = undefined;
+						clearedCount++;
+						outputChannel.info(`Cleared summary for round ${round.id}`);
+					}
+				}
+			}
+		}
+
+		outputChannel.info(`=== Cleared ${clearedCount} round summary(ies) ===`);
+		vscode.window.showInformationMessage(`Cleared ${clearedCount} round summary(ies). Compression can now be re-triggered.`);
 	}
 
 	/**
@@ -132,15 +259,45 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			return;
 		}
 
+		// Get all available endpoints for selection
+		const allEndpoints = await this.endpointProvider.getAllChatEndpoints();
+		const endpointItems = allEndpoints.map(ep => ({
+			label: ep.model,
+			description: `family: ${ep.family}, maxTokens: ${ep.modelMaxPromptTokens}`,
+			endpoint: ep,
+		}));
+
+		// Put gpt-4.1 first as default, then sort alphabetically
+		endpointItems.sort((a, b) => {
+			if (a.label === 'gpt-4.1') {
+				return -1;
+			}
+			if (b.label === 'gpt-4.1') {
+				return 1;
+			}
+			return a.label.localeCompare(b.label);
+		});
+
+		const endpointChoice = await vscode.window.showQuickPick(endpointItems, {
+			placeHolder: 'Select model endpoint for summarization test',
+			title: 'Dry-Run Summarization - Select Endpoint'
+		});
+
+		if (!endpointChoice) {
+			outputChannel.info('User cancelled endpoint selection.');
+			return;
+		}
+
 		outputChannel.info(`Using conversation: ${conversation.sessionId}`);
 		outputChannel.info(`Turns: ${conversation.turns.length}`);
+		outputChannel.info(`Selected endpoint: ${endpointChoice.label}`);
 
 		// Normalize summaries on rounds (same as real flow)
 		normalizeSummariesOnRounds(conversation.turns);
 
 		// Build real IBuildPromptContext from the conversation
 		const realPromptContext = this.buildPromptContextFromConversation(conversation);
-		await this.executeDryRun(realPromptContext, 'REAL');
+		await this.executeDryRun(realPromptContext, 'REAL', endpointChoice.endpoint);
 	}
 
 	/**
@@ -182,7 +339,7 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			// The actual tool invocation token is not needed for summarization (we just render history).
 			tools: {
 				toolReferences: [],
-				toolInvocationToken: undefined as any, // Not used during summarization rendering
+				toolInvocationToken: undefined!, // Not used during summarization rendering
 				availableTools: [],
 			},
 		};
@@ -191,12 +348,13 @@ class SummarizationDebugContribution implements IExtensionContribution {
 	/**
 	 * Shared dry-run execution logic.
 	 */
-	private async executeDryRun(promptContext: IBuildPromptContext, contextType: 'REAL' | 'MOCK'): Promise<void> {
+	private async executeDryRun(promptContext: IBuildPromptContext, contextType: 'REAL' | 'MOCK', endpointOverride?: IChatEndpoint): Promise<void> {
 		const outputChannel = this.outputChannel;
 
 		try {
-			// Use the same endpoint as real summarization flow
-			const endpoint = await this.endpointProvider.getChatEndpoint('gpt-4.1');
+			// Use specified endpoint or default to gpt-4.1 for stability
+			const endpoint = endpointOverride ?? await this.endpointProvider.getChatEndpoint('gpt-4.1');
+			outputChannel.info(`Using endpoint: ${endpoint.model}`);
 
 			const props: SummarizedAgentHistoryProps = {
 				priority: 100,
@@ -294,6 +452,36 @@ class SummarizationDebugContribution implements IExtensionContribution {
 			outputChannel.info('');
 			outputChannel.info('=== Step 3: LLM Request ===');
 			outputChannel.info(`Endpoint: ${endpoint.model}`);
+
+			// Build tool options (matching real summarization behavior)
+			const shouldInjectTools = SummarizationDebugFlags.injectTools && !simpleMode;
+			outputChannel.info(`Tool injection: ${shouldInjectTools ? 'ENABLED' : 'DISABLED'} (flag=${SummarizationDebugFlags.injectTools}, simpleMode=${simpleMode})`);
+
+			let toolOpts: { tool_choice: 'none'; tools: any[] } | undefined;
+			if (shouldInjectTools) {
+				const availableTools = this.toolsService.tools;
+				outputChannel.info(`Available tools count: ${availableTools.length}`);
+
+				toolOpts = {
+					tool_choice: 'none' as const,
+					tools: normalizeToolSchema(
+						endpoint.family,
+						availableTools.map(tool => ({
+							function: {
+								name: tool.name,
+								description: tool.description,
+								parameters: tool.inputSchema && Object.keys(tool.inputSchema).length ? tool.inputSchema : undefined
+							},
+							type: 'function'
+						})),
+						(tool, rule) => {
+							outputChannel.warn(`Tool ${tool} failed validation: ${rule}`);
+						},
+					),
+				};
+				outputChannel.info(`Injected tools count: ${toolOpts.tools?.length ?? 0}`);
+			}
+
 			outputChannel.info('Sending request to LLM...');
 
 			try {
@@ -305,6 +493,7 @@ class SummarizationDebugContribution implements IExtensionContribution {
 					requestOptions: {
 						temperature: 0,
 						stream: false,
+						...toolOpts
 					},
 					enableRetryOnFilter: true
 				}, CancellationToken.None);

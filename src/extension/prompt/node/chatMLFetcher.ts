@@ -122,6 +122,24 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			postOptions
 		});
 
+		// [DEBUG PROBE 6] Dump request body for comparison
+		// Compute MD5 hash of the stringified request body for quick comparison
+		const requestBodyJson = JSON.stringify(requestBody);
+		const crypto = await import('crypto');
+		const requestBodyHash = crypto.createHash('md5').update(requestBodyJson).digest('hex');
+		console.log(`[SUMMARIZE DEBUG] fetchMany: debugName="${debugName}", ourRequestId="${ourRequestId}"`);
+		console.log(`[SUMMARIZE DEBUG] fetchMany: model="${chatEndpoint.model}", endpoint="${chatEndpoint.name}"`);
+		console.log(`[SUMMARIZE DEBUG] fetchMany: requestBody.messages.length=${requestBody.messages?.length ?? 0}`);
+		console.log(`[SUMMARIZE DEBUG] fetchMany: requestBody JSON size=${requestBodyJson.length} bytes`);
+		console.log(`[SUMMARIZE DEBUG] fetchMany: requestBody MD5 hash="${requestBodyHash}"`);
+		console.log(`[SUMMARIZE DEBUG] fetchMany: postOptions=${JSON.stringify(postOptions)}`);
+		// For summarization requests, dump full body to file for detailed comparison
+		if (debugName.includes('summarize') || debugName.includes('dryRun')) {
+			const fs = await import('fs');
+			const dumpPath = `/tmp/llm-request-${debugName.replace(/[^a-zA-Z0-9-]/g, '_')}-${ourRequestId.substring(0, 8)}.json`;
+			fs.writeFileSync(dumpPath, requestBodyJson, 'utf-8');
+			console.log(`[SUMMARIZE DEBUG] fetchMany: Full request body dumped to ${dumpPath}`);
+		}
 
 		const baseTelemetry = TelemetryData.createAndMarkAsIssued({
 			...telemetryProperties,

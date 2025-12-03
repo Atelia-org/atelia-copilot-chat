@@ -375,10 +375,47 @@ export class SummarizedConversationHistory extends PromptElement<SummarizedAgent
 	}
 }
 
-enum SummaryMode {
+export enum SummaryMode {
 	Simple = 'simple',
 	Full = 'full'
 }
+
+/**
+ * Global debug flags for summarization.
+ * Can be toggled at runtime via developer console or debug commands.
+ *
+ * Usage in Developer Console (Extension Development Host):
+ * ```js
+ * // Get current state
+ * globalThis.__SUMMARIZATION_DEBUG_FLAGS__
+ *
+ * // Disable tools injection
+ * globalThis.__SUMMARIZATION_DEBUG_FLAGS__.injectTools = false
+ *
+ * // Re-enable tools injection
+ * globalThis.__SUMMARIZATION_DEBUG_FLAGS__.injectTools = true
+ * ```
+ */
+export const SummarizationDebugFlags = {
+	/** Whether to inject tools into summarization request options. Default: true */
+	injectTools: true,
+	/** Enable verbose logging to console. Default: false */
+	verboseLogging: false,
+};
+
+/**
+ * Ensure the debug flags are exposed to globalThis.
+ * Called during module initialization and can be called again if needed.
+ */
+export function ensureSummarizationDebugFlagsExposed(): typeof SummarizationDebugFlags {
+	if (typeof globalThis !== 'undefined') {
+		(globalThis as any).__SUMMARIZATION_DEBUG_FLAGS__ = SummarizationDebugFlags;
+	}
+	return SummarizationDebugFlags;
+}
+
+// Expose immediately on module load
+ensureSummarizationDebugFlagsExposed();
 
 class ConversationHistorySummarizer {
 	private readonly summarizationId = generateUuid();
@@ -481,7 +518,14 @@ class ConversationHistorySummarizer {
 
 		let summaryResponse: ChatResponse;
 		try {
-			const toolOpts = mode === SummaryMode.Full ? {
+			// Check debug flag to determine if tools should be injected
+			const shouldInjectTools = SummarizationDebugFlags.injectTools && mode === SummaryMode.Full;
+			if (SummarizationDebugFlags.verboseLogging) {
+				console.log(`[SUMMARIZE DEBUG] shouldInjectTools=${shouldInjectTools} (flag=${SummarizationDebugFlags.injectTools}, mode=${mode})`);
+			}
+			this.logService.info(`[Summarizer] Tool injection: ${shouldInjectTools ? 'ENABLED' : 'DISABLED'} (flag=${SummarizationDebugFlags.injectTools}, mode=${mode})`);
+
+			const toolOpts = shouldInjectTools ? {
 				tool_choice: 'none' as const,
 				tools: normalizeToolSchema(
 					endpoint.family,
@@ -505,6 +549,10 @@ class ConversationHistorySummarizer {
 				stripCacheBreakpoints(summarizationPrompt);
 			}
 
+			// [DEBUG PROBE 2] Summarization request timing
+			const requestStartTime = Date.now();
+			console.log(`[SUMMARIZE DEBUG] makeChatRequest2 开始 @ ${new Date().toISOString()}, mode=${mode}, stream=false`);
+			console.log(`[SUMMARIZE DEBUG] Prompt messages count: ${summarizationPrompt.length}`);
 			summaryResponse = await endpoint.makeChatRequest2({
 				debugName: `summarizeConversationHistory-${mode}`,
 				messages: ToolCallingLoop.stripInternalToolCallIds(summarizationPrompt),
@@ -518,6 +566,12 @@ class ConversationHistorySummarizer {
 				telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
 				enableRetryOnFilter: true
 			}, this.token ?? CancellationToken.None);
+			const requestElapsed = Date.now() - requestStartTime;
+			console.log(`[SUMMARIZE DEBUG] makeChatRequest2 完成, 耗时 ${requestElapsed}ms, response.type=${summaryResponse.type}`);
+			if (summaryResponse.type === 'success') {
+				console.log(`[SUMMARIZE DEBUG] Summary length: ${summaryResponse.value?.length ?? 0} chars`);
+				console.log(`[SUMMARIZE DEBUG] Summary preview (first 300 chars): ${summaryResponse.value?.substring(0, 300)}`);
+			}
 		} catch (e) {
 			this.logInfo(`Error from summarization request. ${e.message}`, mode);
 			this.sendSummarizationTelemetry('requestThrow', '', this.props.endpoint.model, mode, stopwatch.elapsed(), undefined);

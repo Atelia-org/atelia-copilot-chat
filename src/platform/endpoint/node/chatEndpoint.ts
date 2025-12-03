@@ -59,7 +59,13 @@ export async function defaultChatResponseProcessor(
 }
 
 export async function defaultNonStreamChatResponseProcessor(response: Response, finishCallback: FinishedCallback, telemetryData: TelemetryData) {
+	// [DEBUG PROBE 1] Non-stream response.text() timing
+	const startTime = Date.now();
+	console.log(`[SUMMARIZE DEBUG] defaultNonStreamChatResponseProcessor: response.text() 开始 @ ${new Date().toISOString()}`);
 	const textResponse = await response.text();
+	const elapsed = Date.now() - startTime;
+	console.log(`[SUMMARIZE DEBUG] defaultNonStreamChatResponseProcessor: response.text() 完成, 耗时 ${elapsed}ms, 响应长度 ${textResponse.length} chars`);
+	console.log(`[SUMMARIZE DEBUG] Response preview (first 500 chars): ${textResponse.substring(0, 500)}`);
 	const jsonResponse = JSON.parse(textResponse);
 	const completions: ChatCompletion[] = [];
 	for (let i = 0; i < (jsonResponse?.choices?.length || 0); i++) {
@@ -275,11 +281,16 @@ export class ChatEndpoint implements IChatEndpoint {
 		telemetryData: TelemetryData,
 		cancellationToken?: CancellationToken | undefined
 	): Promise<AsyncIterableObject<ChatCompletion>> {
+		// [DEBUG PROBE 4] Response processing path
+		console.log(`[SUMMARIZE DEBUG] processResponseFromChatEndpoint: useResponsesApi=${this.useResponsesApi}, supportsStreaming=${this._supportsStreaming}`);
 		if (this.useResponsesApi) {
+			console.log(`[SUMMARIZE DEBUG] → Using ResponsesAPI path`);
 			return processResponseFromChatEndpoint(this._instantiationService, telemetryService, logService, response, expectedNumChoices, finishCallback, telemetryData);
 		} else if (!this._supportsStreaming) {
+			console.log(`[SUMMARIZE DEBUG] → Using NON-STREAMING path (defaultNonStreamChatResponseProcessor)`);
 			return defaultNonStreamChatResponseProcessor(response, finishCallback, telemetryData);
 		} else {
+			console.log(`[SUMMARIZE DEBUG] → Using STREAMING path (defaultChatResponseProcessor/SSE)`);
 			return defaultChatResponseProcessor(telemetryService, logService, response, expectedNumChoices, finishCallback, telemetryData, cancellationToken);
 		}
 	}

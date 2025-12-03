@@ -315,6 +315,11 @@ function networkRequest(
 		suppressIntegrationId: endpointFetchOptions?.suppressIntegrationId
 	};
 
+	// [DEBUG PROBE 3] Network request timing
+	console.log(`[SUMMARIZE DEBUG] postRequest: 发起请求 @ ${new Date().toISOString()}`);
+	console.log(`[SUMMARIZE DEBUG] postRequest: timeout=${requestTimeoutMs}ms, stream=${body?.stream}`);
+	console.log(`[SUMMARIZE DEBUG] postRequest: endpoint=${typeof endpoint.urlOrRequestMetadata === 'string' ? endpoint.urlOrRequestMetadata : 'RequestMetadata'}`);
+
 	if (cancelToken) {
 		const abort = fetcher.makeAbortController();
 		cancelToken.onCancellationRequested(() => {

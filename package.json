@@ -2115,6 +2115,11 @@
 				"category": "Developer"
 			},
 			{
+				"command": "github.copilot.debug.toggleSummarizationToolInjection",
+				"title": "Toggle Summarization Tool Injection",
+				"category": "Developer"
+			},
+			{
 				"command": "github.copilot.open.walkthrough",
 				"title": "%github.copilot.command.openWalkthrough%",
 				"category": "Chat"

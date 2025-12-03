@@ -295,8 +295,21 @@ export class SSEProcessor {
 		// This flag is set when at least for one solution we finished early (via `finishedCb`).
 		let hadEarlyFinishedSolution = false;
 		// Iterate over arbitrarily sized chunks coming in from the network.
+		let chunkCount = 0;
+		const streamStartTime = Date.now();
+		console.log(`[SUMMARIZE DEBUG] SSE stream 开始 @ ${new Date().toISOString()}`);
 		for await (const chunk of this.body) {
+			chunkCount++;
+			const chunkStr = chunk.toString();
+			console.log(`[SUMMARIZE DEBUG] SSE chunk #${chunkCount}: ${chunkStr.length} bytes @ +${Date.now() - streamStartTime}ms`);
+			// 打印前200字符用于调试
+			if (chunkStr.length <= 500) {
+				console.log(`[SUMMARIZE DEBUG] SSE chunk content: ${chunkStr}`);
+			} else {
+				console.log(`[SUMMARIZE DEBUG] SSE chunk preview: ${chunkStr.substring(0, 200)}...`);
+			}
 			if (this.maybeCancel('after awaiting body chunk')) {
+				console.log(`[SUMMARIZE DEBUG] SSE cancelled after chunk #${chunkCount}`);
 				return;
 			}
 
