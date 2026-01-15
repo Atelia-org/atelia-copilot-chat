@@ -2,7 +2,7 @@
 	"name": "copilot-chat",
 	"displayName": "GitHub Copilot Chat",
 	"description": "AI chat features powered by Copilot",
-	"version": "0.36.0",
+	"version": "0.35.3",
 	"build": "1",
 	"internalAIKey": "1058ec22-3c95-4951-8443-f26c1f325911",
 	"completionsCoreVersion": "1.378.1799",
@@ -3277,6 +3277,15 @@
 						],
 						"description": "%github.copilot.config.alternateGptPrompt.enabled%"
 					},
+					"github.copilot.chat.alternateGeminiModelFPrompt.enabled": {
+						"type": "boolean",
+						"default": false,
+						"tags": [
+							"experimental",
+							"onExp"
+						],
+						"description": "%github.copilot.config.alternateGeminiModelFPrompt.enabled%"
+					},
 					"github.copilot.chat.useResponsesApi": {
 						"type": "boolean",
 						"default": true,
@@ -3315,13 +3324,11 @@
 						]
 					},
 					"github.copilot.chat.anthropic.thinking.budgetTokens": {
-						"type": [
-							"number",
-							"null"
-						],
+						"type": "number",
 						"markdownDescription": "%github.copilot.config.anthropic.thinking.budgetTokens%",
 						"minimum": 0,
 						"maximum": 32000,
+						"default": 4000,
 						"tags": [
 							"experimental",
 							"onExp"
@@ -3767,14 +3774,6 @@
 							"advanced",
 							"experimental",
 							"onExp"
-						]
-					},
-					"github.copilot.chat.halfContextSummarization": {
-						"type": "boolean",
-						"default": false,
-						"markdownDescription": "%github.copilot.config.halfContextSummarization%",
-						"tags": [
-							"experimental"
 						]
 					},
 					"github.copilot.chat.useResponsesApiTruncation": {
@@ -4603,11 +4602,6 @@
 					"command": "github.copilot.cloud.sessions.proxy.closeChatSessionPullRequest",
 					"when": "chatSessionType == copilot-cloud-agent",
 					"group": "context"
-				},
-				{
-					"command": "github.copilot.cli.sessions.delete",
-					"when": "chatSessionType == copilotcli && config.chat.agentSessionsViewLocation == 'single-view'",
-					"group": "context"
 				}
 			]
 		},
@@ -5082,10 +5076,10 @@
 		"prepare": "husky",
 		"vscode-dts:dev": "node node_modules/@vscode/dts/index.js dev && mv vscode.proposed.*.ts src/extension",
 		"vscode-dts:main": "node node_modules/@vscode/dts/index.js main && mv vscode.d.ts src/extension",
-		"build": "node .esbuild.ts",
-		"compile": "node .esbuild.ts --dev",
+		"build": "tsx .esbuild.ts",
+		"compile": "tsx .esbuild.ts --dev",
 		"watch": "npm-run-all -p watch:*",
-		"watch:esbuild": "node .esbuild.ts --watch --dev",
+		"watch:esbuild": "tsx .esbuild.ts --watch --dev",
 		"watch:tsc-extension": "tsc --noEmit --watch --project tsconfig.json",
 		"watch:tsc-extension-web": "tsc --noEmit --watch --project tsconfig.worker.json",
 		"watch:tsc-simulation-workbench": "tsc --noEmit --watch --project test/simulation/workbench/tsconfig.json",
