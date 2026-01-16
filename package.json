@@ -4409,6 +4409,13 @@
 							"onExp"
 						]
 					},
+					"github.copilot.chat.halfContextSummarization": {
+						"type": "boolean",
+						"default": false,
+						"markdownDescription": "%github.copilot.config.halfContextSummarization%",
+						"tags": [
+						]
+					},
 					"github.copilot.chat.useResponsesApiTruncation": {
 						"type": "boolean",
 						"default": false,
