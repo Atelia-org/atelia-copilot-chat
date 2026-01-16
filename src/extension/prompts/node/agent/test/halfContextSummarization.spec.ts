@@ -710,7 +710,7 @@ describe('Half-Context Summarization', () => {
 	});
 
 	describe('Anthropic Thinking Support', () => {
-		function createRoundWithThinking(message: string, toolIdx: number, thinking?: { thinking: string; signature?: string }): ToolCallRound {
+		function createRoundWithThinking(message: string, toolIdx: number, thinking?: { id: string; text: string | string[]; metadata?: { [key: string]: any } }): ToolCallRound {
 			return new ToolCallRound(
 				message,
 				[createToolCall(toolIdx)],
@@ -746,7 +746,7 @@ describe('Half-Context Summarization', () => {
 		}
 
 		test('half-context returns summarizedThinking for Anthropic endpoints', () => {
-			const thinkingData = { thinking: 'I am thinking about this problem...', signature: 'sig123' };
+			const thinkingData = { id: 'thinking_1', text: 'I am thinking about this problem...', metadata: { signature: 'sig123' } };
 			const rounds = [
 				createRoundWithThinking('round 1', 1, thinkingData),
 				createRoundWithThinking('round 2', 2),
@@ -766,11 +766,11 @@ describe('Half-Context Summarization', () => {
 			const result = getPropsBuilder().getProps(createAnthropicBaseProps(promptContext));
 
 			expect(result.summarizedThinking).toBeDefined();
-			expect(result.summarizedThinking?.thinking).toBe('I am thinking about this problem...');
+			expect(result.summarizedThinking?.text).toBe('I am thinking about this problem...');
 		});
 
 		test('half-context returns undefined summarizedThinking for non-Anthropic endpoints', () => {
-			const thinkingData = { thinking: 'I am thinking...', signature: 'sig123' };
+			const thinkingData = { id: 'thinking_1', text: 'I am thinking...', metadata: { signature: 'sig123' } };
 			const rounds = [
 				createRoundWithThinking('round 1', 1, thinkingData),
 				createRoundWithThinking('round 2', 2),
@@ -796,8 +796,8 @@ describe('Half-Context Summarization', () => {
 			// 4 rounds: round1(thinking1), round2(thinking2), round3, round4
 			// Split: summarize first 2, keep last 2
 			// toSummarize = [round1, round2] -> should find thinking2 (last in summarized span)
-			const thinking1 = { thinking: 'First thinking', signature: 'sig1' };
-			const thinking2 = { thinking: 'Second thinking in summarized span', signature: 'sig2' };
+			const thinking1 = { id: 'thinking_1', text: 'First thinking', metadata: { signature: 'sig1' } };
+			const thinking2 = { id: 'thinking_2', text: 'Second thinking in summarized span', metadata: { signature: 'sig2' } };
 			const rounds = [
 				createRoundWithThinking('round 1', 1, thinking1),
 				createRoundWithThinking('round 2', 2, thinking2),
@@ -818,15 +818,15 @@ describe('Half-Context Summarization', () => {
 			const result = getPropsBuilder().getProps(createAnthropicBaseProps(promptContext));
 
 			// Should find thinking2 (last thinking in summarized rounds), not thinking1
-			expect(result.summarizedThinking?.thinking).toBe('Second thinking in summarized span');
+			expect(result.summarizedThinking?.text).toBe('Second thinking in summarized span');
 		});
 
 		test('legacy finds thinking from current toolCallRounds, half-context from summarized span', () => {
 			// This test verifies the semantic difference:
 			// - Legacy: findLastThinking scans current toolCallRounds
 			// - Half-context: finds thinking only within the summarized rounds
-			const thinking1 = { thinking: 'Thinking in summarized span', signature: 'sig1' };
-			const thinking3 = { thinking: 'Thinking in kept span', signature: 'sig3' };
+			const thinking1 = { id: 'thinking_1', text: 'Thinking in summarized span', metadata: { signature: 'sig1' } };
+			const thinking3 = { id: 'thinking_3', text: 'Thinking in kept span', metadata: { signature: 'sig3' } };
 			const rounds = [
 				createRoundWithThinking('round 1', 1, thinking1),
 				createRoundWithThinking('round 2', 2),
@@ -846,18 +846,18 @@ describe('Half-Context Summarization', () => {
 			// Test legacy - finds last thinking from ALL toolCallRounds
 			configService.setConfig(ConfigKey.Advanced.HalfContextSummarization, false);
 			const legacyResult = getPropsBuilder().getProps(createAnthropicBaseProps(promptContext));
-			expect(legacyResult.summarizedThinking?.thinking).toBe('Thinking in kept span');
+			expect(legacyResult.summarizedThinking?.text).toBe('Thinking in kept span');
 
 			// Test half-context - finds last thinking from summarized rounds only
 			configService.setConfig(ConfigKey.Advanced.HalfContextSummarization, true);
 			const halfContextResult = getPropsBuilder().getProps(createAnthropicBaseProps(promptContext));
-			expect(halfContextResult.summarizedThinking?.thinking).toBe('Thinking in summarized span');
+			expect(halfContextResult.summarizedThinking?.text).toBe('Thinking in summarized span');
 		});
 
 		test('half-context finds thinking from historical rounds when split is in history', () => {
 			// Scenario: split point is in history, not current toolCallRounds
 			// The thinking on the historical round should be found
-			const historyThinking = { thinking: 'Thinking from historical round', signature: 'hist_sig' };
+			const historyThinking = { id: 'thinking_hist', text: 'Thinking from historical round', metadata: { signature: 'hist_sig' } };
 
 			// Create a turn with 2 rounds, one with thinking
 			const historyRoundWithThinking = createRoundWithThinking('history round 1', 1, historyThinking);
@@ -887,7 +887,7 @@ describe('Half-Context Summarization', () => {
 			// toSummarize = [historyRound1, historyRound2]
 			// Should find historyThinking (on historyRound1)
 			expect(result.summarizedThinking).toBeDefined();
-			expect(result.summarizedThinking?.thinking).toBe('Thinking from historical round');
+			expect(result.summarizedThinking?.text).toBe('Thinking from historical round');
 		});
 	});
 });
