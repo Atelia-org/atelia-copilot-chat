@@ -7,7 +7,6 @@ import MarkdownIt from 'markdown-it';
 import * as pathLib from 'path';
 import * as vscode from 'vscode';
 import { Uri } from 'vscode';
-import { IExperimentationService } from '../../../lib/node/chatLibMain';
 import { IAuthenticationService } from '../../../platform/authentication/common/authentication';
 import { IVSCodeExtensionContext } from '../../../platform/extContext/common/extensionContext';
 import { IGitExtensionService } from '../../../platform/git/common/gitExtensionService';
@@ -15,6 +14,7 @@ import { IGitService } from '../../../platform/git/common/gitService';
 import { PullRequestSearchItem, SessionInfo } from '../../../platform/github/common/githubAPI';
 import { IGithubRepositoryService, IOctoKitService, JobInfo, RemoteAgentJobPayload, RemoteAgentJobResponse } from '../../../platform/github/common/githubService';
 import { ILogService } from '../../../platform/log/common/logService';
+import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry';
 import { DeferredPromise, retry, RunOnceScheduler } from '../../../util/vs/base/common/async';
 import { Event } from '../../../util/vs/base/common/event';
@@ -253,6 +253,7 @@ export class CopilotCloudSessionsProvider extends Disposable implements vscode.C
 		}
 	}
 
+
 	public refresh(): void {
 		this.cachedSessionItems = undefined;
 		this.activeSessionIds.clear();
@@ -395,14 +396,25 @@ export class CopilotCloudSessionsProvider extends Disposable implements vscode.C
 		}
 	}
 
-	async provideChatSessionItems(token: vscode.CancellationToken): Promise<vscode.ChatSessionItem[]> {
-		// Return cached items if available
-		if (this.cachedSessionItems) {
+	private async overrideWithCache(): Promise<vscode.ChatSessionItem[] | undefined> {
+		// Return cache only if is already being tracked
+		if (this.cachedSessionItems && this.activeSessionIds.size > 0) {
 			return this.cachedSessionItems;
 		}
 
+		// Multiple calls should return the same promise as long as it's pending
 		if (this.chatSessionItemsPromise) {
-			return this.chatSessionItemsPromise;
+			return await this.chatSessionItemsPromise;
+		}
+
+		// No cache, refresh
+		return undefined;
+	}
+
+	async provideChatSessionItems(token: vscode.CancellationToken): Promise<vscode.ChatSessionItem[]> {
+		const cache = await this.overrideWithCache();
+		if (cache) {
+			return cache;
 		}
 		this.chatSessionItemsPromise = (async () => {
 			const repoId = await getRepoId(this._gitService);
