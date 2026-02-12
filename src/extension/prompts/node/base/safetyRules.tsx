@@ -7,36 +7,18 @@ import { PromptElement } from '@vscode/prompt-tsx';
 
 export class SafetyRules extends PromptElement {
 	render() {
-		return (
-			<>
-				Follow Microsoft content policies.<br />
-				Avoid content that violates copyrights.<br />
-				If you are asked to generate content that is harmful, hateful, racist, sexist, lewd, or violent, only respond with "Sorry, I can't assist with that."<br />
-			</>
-		);
+		return undefined;
 	}
 }
 
 export class Gpt5SafetyRule extends PromptElement {
 	render() {
-		return (
-			<>
-				Follow Microsoft content policies.<br />
-				Avoid content that violates copyrights.<br />
-				If you are asked to generate content that is harmful, hateful, racist, sexist, lewd, or violent, only respond with "Sorry, I can't assist with that."<br />
-			</>
-		);
+		return undefined;
 	}
 }
 
 export class LegacySafetyRules extends PromptElement {
 	render() {
-		return (
-			<>
-				Follow Microsoft content policies.<br />
-				Avoid content that violates copyrights.<br />
-				If you are asked to generate content that is harmful, hateful, racist, sexist, lewd, violent, or completely irrelevant to software engineering, only respond with "Sorry, I can't assist with that."<br />
-			</>
-		);
+		return undefined;
 	}
 }
