@@ -14,9 +14,7 @@ import { InstructionMessage } from '../base/instructionMessage';
 import { ResponseTranslationRules } from '../base/responseTranslationRules';
 import { Tag } from '../base/tag';
 import { EXISTING_CODE_MARKER } from '../panel/codeBlockFormattingRules';
-import { MathIntegrationRules } from '../panel/editorIntegrationRules';
 import { CodesearchModeInstructions, DefaultAgentPromptProps, detectToolCapabilities, GenericEditingTips, getEditingReminder, McpToolInstructions, NotebookInstructions, ReminderInstructionsProps } from './defaultAgentInstructions';
-import { FileLinkificationInstructions } from './fileLinkificationInstructions';
 import { IAgentPrompt, PromptRegistry, ReminderInstructionsConstructor, SystemPrompt } from './promptRegistry';
 
 interface ToolSearchToolPromptProps extends BasePromptElementProps {
@@ -118,9 +116,6 @@ class DefaultAnthropicAgentPrompt extends PromptElement<DefaultAgentPromptProps>
 			</Tag>
 			<Tag name='toolUseInstructions'>
 				If the user is requesting a code sample, you can answer it directly without using any tools.<br />
-				When using a tool, follow the JSON schema very carefully and make sure to include ALL required properties.<br />
-				No need to ask permission before using a tool.<br />
-				NEVER say the name of a tool to a user. For example, instead of saying that you'll use the {ToolName.CoreRunInTerminal} tool, say "I'll run the command in a terminal".<br />
 				If you think running multiple tools can answer the user's question, prefer calling them in parallel whenever possible{tools[ToolName.Codebase] && <>, but do not call {ToolName.Codebase} in parallel.</>}<br />
 				{tools[ToolName.ReadFile] && <>When using the {ToolName.ReadFile} tool, prefer reading a large section over calling the {ToolName.ReadFile} tool many times in sequence. You can also think of all the pieces you may be interested in and read them in parallel. Read large enough context to ensure you get what you need.<br /></>}
 				{tools[ToolName.Codebase] && <>If {ToolName.Codebase} returns the full contents of the text files in the workspace, you have all the workspace context.<br /></>}
@@ -177,9 +172,7 @@ class DefaultAnthropicAgentPrompt extends PromptElement<DefaultAgentPromptProps>
 			{this.props.availableTools && <McpToolInstructions tools={this.props.availableTools} />}
 			<NotebookInstructions {...this.props} />
 			<Tag name='outputFormatting'>
-				Use proper Markdown formatting. When referring to symbols (classes, methods, variables) in user's workspace wrap in backticks. For file paths and line number rules, see fileLinkification section<br />
-				<FileLinkificationInstructions />
-				<MathIntegrationRules />
+				Use proper Markdown formatting. When referring to symbols (classes, methods, variables) in user's workspace wrap in backticks.<br />
 			</Tag>
 			<ResponseTranslationRules />
 		</InstructionMessage>;
@@ -243,9 +236,6 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 			</Tag>
 			<Tag name='toolUseInstructions'>
 				If the user is requesting a code sample, you can answer it directly without using any tools.<br />
-				When using a tool, follow the JSON schema very carefully and make sure to include ALL required properties.<br />
-				No need to ask permission before using a tool.<br />
-				NEVER say the name of a tool to a user. For example, instead of saying that you'll use the {ToolName.CoreRunInTerminal} tool, say "I'll run the command in a terminal".<br />
 				If you think running multiple tools can answer the user's question, prefer calling them in parallel whenever possible{tools[ToolName.Codebase] && <>, but do not call {ToolName.Codebase} in parallel.</>}<br />
 				{tools[ToolName.SearchSubagent] && <>For codebase exploration, prefer {ToolName.SearchSubagent} to search and gather data instead of directly calling {ToolName.FindTextInFiles}, {ToolName.Codebase} or {ToolName.FindFiles}.<br /></>}
 				{tools[ToolName.ReadFile] && <>When using the {ToolName.ReadFile} tool, prefer reading a large section over calling the {ToolName.ReadFile} tool many times in sequence. You can also think of all the pieces you may be interested in and read them in parallel. Read large enough context to ensure you get what you need.<br /></>}
@@ -266,22 +256,7 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 				For straightforward queries, keep answers brief - typically a few lines excluding code or tool invocations. Expand detail only when dealing with complex work or when explicitly requested.<br />
 				Optimize for conciseness while preserving helpfulness and accuracy. Address only the immediate request, omitting unrelated details unless critical. Target 1-3 sentences for simple answers when possible.<br />
 				Avoid extraneous framing - skip unnecessary introductions or conclusions unless requested. After completing file operations, confirm completion briefly rather than explaining what was done. Respond directly without phrases like "Here's the answer:", "The result is:", or "I will now...".<br />
-				Example responses demonstrating appropriate brevity:<br />
-				<Tag name='communicationExamples'>
-					User: `what's the square root of 144?`<br />
-					Assistant: `12`<br />
-					User: `which directory has the server code?`<br />
-					Assistant: [searches workspace and finds backend/]<br />
-					`backend/`<br />
-					<br />
-					User: `how many bytes in a megabyte?`<br />
-					Assistant: `1048576`<br />
-					<br />
-					User: `what files are in src/utils/?`<br />
-					Assistant: [lists directory and sees helpers.ts, validators.ts, constants.ts]<br />
-					`helpers.ts, validators.ts, constants.ts`<br />
-				</Tag>
-				<br />
+
 				When executing non-trivial commands, explain their purpose and impact so users understand what's happening, particularly for system-modifying operations.<br />
 				Do NOT use emojis unless explicitly requested by the user.<br />
 			</Tag>
@@ -290,9 +265,6 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 			<Tag name='outputFormatting'>
 				Use proper Markdown formatting:
 				- Wrap symbol names (classes, methods, variables) in backticks: `MyClass`, `handleClick()`<br />
-				- When mentioning files or line numbers, always follow the rules in fileLinkification section below:
-				<FileLinkificationInstructions />
-				<MathIntegrationRules />
 			</Tag>
 			<ResponseTranslationRules />
 		</InstructionMessage>;
