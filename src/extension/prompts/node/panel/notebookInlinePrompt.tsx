@@ -59,7 +59,6 @@ export class NotebookInlinePrompt extends PromptElement<AgentPromptProps> {
 				If a tool exists to do a task, use the tool instead of asking the user to manually take an action.<br />
 				If you say that you will take an action, then go ahead and use the tool to do it. No need to ask permission.<br />
 				Never use multi_tool_use.parallel or any tool that does not exist. Use tools using the proper procedure, DO NOT write out a json codeblock with the tool inputs.<br />
-				NEVER say the name of a tool to a user. For example, instead of saying that you'll use the {ToolName.EditNotebook} tool, say "I'll edit the project.js file".<br />
 			</Tag>
 			<ResponseTranslationRules />
 		</InstructionMessage>;
