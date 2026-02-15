@@ -147,7 +147,6 @@ class DefaultAnthropicAgentPrompt extends PromptElement<DefaultAgentPromptProps>
 				You don't need to read a file if it's already provided in context.
 			</Tag>
 			<Tag name='toolUseInstructions'>
-				If the user is requesting a code sample, you can answer it directly without using any tools.<br />
 				If you think running multiple tools can answer the user's question, prefer calling them in parallel whenever possible{tools[ToolName.Codebase] && <>, but do not call {ToolName.Codebase} in parallel.</>}<br />
 				{tools[ToolName.ReadFile] && <>When using the {ToolName.ReadFile} tool, prefer reading a large section over calling the {ToolName.ReadFile} tool many times in sequence. You can also think of all the pieces you may be interested in and read them in parallel. Read large enough context to ensure you get what you need.<br /></>}
 				{tools[ToolName.Codebase] && <>If {ToolName.Codebase} returns the full contents of the text files in the workspace, you have all the workspace context.<br /></>}
@@ -155,7 +154,7 @@ class DefaultAnthropicAgentPrompt extends PromptElement<DefaultAgentPromptProps>
 				{tools[ToolName.Codebase] && <>If you don't know exactly the string or filename pattern you're looking for, use {ToolName.Codebase} to do a semantic search across the workspace.<br /></>}
 				{tools[ToolName.CoreRunInTerminal] && <>Don't call the {ToolName.CoreRunInTerminal} tool multiple times in parallel. Instead, run one command and wait for the output before running the next command.<br /></>}
 				When invoking a tool that takes a file path, always use the absolute file path. If the file has a scheme like untitled: or vscode-userdata:, then use a URI with the scheme.<br />
-				{tools[ToolName.CoreRunInTerminal] && <>NEVER try to edit a file by running terminal commands unless the user specifically asks for it.<br /></>}
+				{tools[ToolName.CoreRunInTerminal] && <>Prefer using file editing tools over terminal commands. Use terminal-based edits only when explicitly requested or when tools are insufficient.<br /></>}
 				{!tools.hasSomeEditTool && <>You don't currently have any tools available for editing files. If the user asks you to edit a file, you can ask the user to enable editing tools or print a codeblock with the suggested changes.<br /></>}
 				{!tools[ToolName.CoreRunInTerminal] && <>You don't currently have any tools available for running terminal commands. If the user asks you to run a terminal command, you can ask the user to enable terminal tools or print a codeblock with the suggested command.<br /></>}
 				Tools can be disabled by the user. You may see tools used previously in the conversation that are not currently available. Be careful to only use the tools that are currently available to you.
@@ -269,7 +268,6 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 				</>}
 			</Tag>
 			<Tag name='toolUseInstructions'>
-				If the user is requesting a code sample, you can answer it directly without using any tools.<br />
 				If you think running multiple tools can answer the user's question, prefer calling them in parallel whenever possible{tools[ToolName.Codebase] && <>, but do not call {ToolName.Codebase} in parallel.</>}<br />
 				{tools[ToolName.SearchSubagent] && <>For codebase exploration, prefer {ToolName.SearchSubagent} to search and gather data instead of directly calling {ToolName.FindTextInFiles}, {ToolName.Codebase} or {ToolName.FindFiles}.<br /></>}
 				{tools[ToolName.ReadFile] && <>When using the {ToolName.ReadFile} tool, prefer reading a large section over calling the {ToolName.ReadFile} tool many times in sequence. You can also think of all the pieces you may be interested in and read them in parallel. Read large enough context to ensure you get what you need.<br /></>}
@@ -279,7 +277,7 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 				{tools[ToolName.CoreRunInTerminal] && <>Don't call the {ToolName.CoreRunInTerminal} tool multiple times in parallel. Instead, run one command and wait for the output before running the next command.<br /></>}
 				{tools[ToolName.CreateFile] && <>When creating files, be intentional and avoid calling the {ToolName.CreateFile} tool unnecessarily. Only create files that are essential to completing the user's request. <br /></>}
 				When invoking a tool that takes a file path, always use the absolute file path. If the file has a scheme like untitled: or vscode-userdata:, then use a URI with the scheme.<br />
-				{tools[ToolName.CoreRunInTerminal] && <>NEVER try to edit a file by running terminal commands unless the user specifically asks for it.<br /></>}
+				{tools[ToolName.CoreRunInTerminal] && <>Prefer using file editing tools over terminal commands. Use terminal-based edits only when explicitly requested or when tools are insufficient.<br /></>}
 				{!tools.hasSomeEditTool && <>You don't currently have any tools available for editing files. If the user asks you to edit a file, you can ask the user to enable editing tools or print a codeblock with the suggested changes.<br /></>}
 				{!tools[ToolName.CoreRunInTerminal] && <>You don't currently have any tools available for running terminal commands. If the user asks you to run a terminal command, you can ask the user to enable terminal tools or print a codeblock with the suggested command.<br /></>}
 				Tools can be disabled by the user. You may see tools used previously in the conversation that are not currently available. Be careful to only use the tools that are currently available to you.<br />
@@ -288,11 +286,10 @@ class Claude45DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 			<Tag name='communicationStyle'>
 				Maintain clarity and directness in all responses, delivering complete information while matching response depth to the task's complexity.<br />
 				For straightforward queries, keep answers brief - typically a few lines excluding code or tool invocations. Expand detail only when dealing with complex work or when explicitly requested.<br />
-				Optimize for conciseness while preserving helpfulness and accuracy. Address only the immediate request, omitting unrelated details unless critical. Target 1-3 sentences for simple answers when possible.<br />
+				Optimize for conciseness while preserving helpfulness and accuracy. Address only the immediate request, omitting unrelated details unless critical.<br />
 				Avoid extraneous framing - skip unnecessary introductions or conclusions unless requested. After completing file operations, confirm completion briefly rather than explaining what was done. Respond directly without phrases like "Here's the answer:", "The result is:", or "I will now...".<br />
 
 				When executing non-trivial commands, explain their purpose and impact so users understand what's happening, particularly for system-modifying operations.<br />
-				Do NOT use emojis unless explicitly requested by the user.<br />
 			</Tag>
 			{this.props.availableTools && <McpToolInstructions tools={this.props.availableTools} />}
 			<NotebookInstructions {...this.props} />
@@ -438,9 +435,6 @@ class Claude46DefaultPrompt extends PromptElement<DefaultAgentPromptProps> {
 			<Tag name='outputFormatting'>
 				Use proper Markdown formatting:
 				- Wrap symbol names (classes, methods, variables) in backticks: `MyClass`, `handleClick()`<br />
-				- When mentioning files or line numbers, always follow the rules in fileLinkification section below:
-				<FileLinkificationInstructions />
-				<MathIntegrationRules />
 			</Tag>
 			<ResponseTranslationRules />
 		</InstructionMessage>;
